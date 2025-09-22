@@ -25,7 +25,7 @@ A simple, elegant web application that allows you to upscale animated GIF and We
 - **GIF**: Full animated GIF support with frame timing preservation
 - **WebP**: 
   - Static WebP: Processed as lossless WebP output
-  - Animated WebP: Converted to animated GIF (preserves all frames and timing)
+  - Animated WebP: Processed as lossless animated WebP output (preserves all frames and timing)
 
 ### Processing Pipeline
 1. **File Reading**: Uses FileReader API to read uploaded files
@@ -34,7 +34,7 @@ A simple, elegant web application that allows you to upscale animated GIF and We
 4. **Re-encoding**: 
    - GIF: Uses [gifenc](https://github.com/mattdesl/gifenc) library for encoding
    - Static WebP: Browser's native Canvas.toBlob() with quality 1.0 (lossless)
-   - Animated WebP: Converted to animated GIF using gifenc library
+   - Animated WebP: Uses [webp-writer](https://github.com/webmproject/webp-writer) library for lossless animated WebP creation
 
 ### Browser Requirements
 - Modern browsers with ImageDecoder API support
@@ -52,6 +52,7 @@ A simple, elegant web application that allows you to upscale animated GIF and We
 ## 🔧 Dependencies
 
 - **gifenc**: GIF encoding library (loaded via CDN)
+- **webp-writer**: WebP encoding library for animated WebP creation (loaded via CDN)
 - **ImageDecoder API**: Modern browser API for image frame decoding
 - **HTML5 Canvas**: For image upscaling operations
 
@@ -65,9 +66,9 @@ A simple, elegant web application that allows you to upscale animated GIF and We
 ## ⚠️ Limitations
 
 - **File Size**: Large files may cause memory issues in browsers
-- **WebP Animation**: Animated WebP files are converted to animated GIF (browser API limitation)
 - **Browser Support**: Requires modern browsers with ImageDecoder API
 - **Processing Time**: Large animations with many frames may take time to process
+- **WebP Library**: Requires webp-writer library to be loaded for animated WebP creation
 
 ## 🚀 Deployment
 

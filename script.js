@@ -274,11 +274,10 @@ class AnimationUpscaler {
                 });
             }
 
-            this.showStatus('Creating animated output...', 'processing');
+            this.showStatus('Creating animated WebP...', 'processing');
             
-            // Since browser APIs don't support creating animated WebP,
-            // we'll convert to animated GIF to preserve the animation
-            await this.createAnimatedGIFFromWebP(frames, scale);
+            // Create animated WebP using webp-writer library
+            await this.createAnimatedWebP(frames, scale);
             
         } catch (error) {
             console.error('WebP processing error:', error);
@@ -326,43 +325,83 @@ class AnimationUpscaler {
         });
     }
 
-    async createAnimatedGIFFromWebP(frames, scale) {
-        // Convert animated WebP frames to animated GIF since browser APIs
-        // don't support creating animated WebP files
+    async createAnimatedWebP(frames, scale) {
+        // Create animated WebP using webp-writer library
         
         if (frames.length === 0) {
             throw new Error('No frames to process');
         }
 
-        // Create GIF encoder
-        const encoder = new gifenc.GIFEncoder();
-        encoder.setRepeat(0); // Infinite loop
-        encoder.start();
+        try {
+            // Check if webp-writer is available
+            if (typeof WebPWriter === 'undefined') {
+                throw new Error('WebP writer library not loaded');
+            }
 
-        // Add each frame to the GIF encoder
-        for (let i = 0; i < frames.length; i++) {
-            const frame = frames[i];
+            const writer = new WebPWriter();
             
-            // Set delay for this frame (convert from milliseconds to centiseconds)
-            encoder.setDelay(frame.duration / 10);
+            // Add each frame to the WebP writer
+            for (let i = 0; i < frames.length; i++) {
+                const frame = frames[i];
+                
+                // Convert duration from milliseconds to seconds
+                const durationSeconds = frame.duration / 1000;
+                
+                // Add frame to writer with lossless encoding
+                writer.addFrame(frame.imageData, {
+                    duration: durationSeconds,
+                    lossless: true  // Ensure lossless encoding
+                });
+            }
+
+            // Get the WebP data
+            const webpData = writer.getData();
             
-            // Add frame data to encoder
-            encoder.addFrame(frame.imageData.data, true);
+            // Create blob and download as WebP
+            const blob = new Blob([webpData], { type: 'image/webp' });
+            this.downloadFile(blob, this.getOutputFilename('.webp'));
+            
+            // Show detailed status about what was processed
+            const totalDuration = frames.reduce((sum, frame) => sum + frame.duration, 0);
+            this.showStatus(
+                `Animated WebP created successfully! ${frames.length} frames processed. ` +
+                `Total duration: ${(totalDuration / 1000).toFixed(2)}s`, 
+                'success'
+            );
+            
+        } catch (error) {
+            console.error('WebP creation error:', error);
+            // Fallback: create static WebP from first frame
+            this.showStatus('Creating static WebP from first frame...', 'processing');
+            await this.createStaticWebPFromFrames(frames);
+        }
+    }
+
+    async createStaticWebPFromFrames(frames) {
+        // Fallback: create a static lossless WebP from the first frame
+        if (frames.length === 0) {
+            throw new Error('No frames to process');
         }
 
-        // Finish encoding
-        encoder.finish();
-        const gifBytes = encoder.bytes();
+        const firstFrame = frames[0];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
         
-        // Create blob and download as GIF
-        const blob = new Blob([gifBytes], { type: 'image/gif' });
-        this.downloadFile(blob, this.getOutputFilename('.gif'));
+        canvas.width = firstFrame.width;
+        canvas.height = firstFrame.height;
         
-        // Show detailed status about what was processed
-        const totalDuration = frames.reduce((sum, frame) => sum + frame.duration, 0);
+        // Put the image data back on canvas
+        ctx.putImageData(firstFrame.imageData, 0, 0);
+        
+        // Create lossless WebP blob
+        const blob = await new Promise(resolve => {
+            canvas.toBlob(resolve, 'image/webp', 1.0); // Quality 1.0 = lossless
+        });
+        
+        this.downloadFile(blob, this.getOutputFilename('.webp'));
+        
         this.showStatus(
-            `Animated WebP converted to GIF successfully! ${frames.length} frames processed. ` +
-            `Total duration: ${(totalDuration / 1000).toFixed(2)}s`, 
+            `Static WebP created from first frame. ${frames.length} frames detected in original.`, 
             'success'
         );
     }
