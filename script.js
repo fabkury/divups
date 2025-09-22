@@ -221,16 +221,33 @@ class AnimationUpscaler {
             
             this.showStatus(`Found ${frameCount} frames. Processing...`, 'processing');
 
-            // For WebP, we'll create individual frames and combine them
-            // This is a simplified approach - in a production app you'd want to use a proper WebP encoder
+            if (frameCount === 1) {
+                // Static WebP - process as single frame
+                await this.processStaticWebP(scale, arrayBuffer);
+                return;
+            }
+
+            // Animated WebP - process all frames
             const frames = [];
             
             for (let i = 0; i < frameCount; i++) {
                 this.showStatus(`Processing frame ${i + 1}/${frameCount}...`, 'processing');
                 
                 const { image } = await decoder.decode({ frameIndex: i });
-                const { duration } = decoder.tracks.selectedTrack.frameCount > 1 ? 
-                    await decoder.decode({ frameIndex: i }) : { duration: 100 };
+                
+                // Get frame duration properly
+                let duration = 100; // Default 100ms
+                try {
+                    const track = decoder.tracks.selectedTrack;
+                    if (track.frameCount > 1) {
+                        // Get the actual frame duration from the track
+                        const frameInfo = await decoder.decode({ frameIndex: i });
+                        duration = frameInfo.image.duration || 100;
+                    }
+                } catch (e) {
+                    // Fallback to default duration
+                    duration = 100;
+                }
 
                 // Create canvas for upscaling
                 const canvas = document.createElement('canvas');
@@ -246,27 +263,25 @@ class AnimationUpscaler {
                 // Draw the frame upscaled
                 ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
                 
-                // Convert to blob
-                const frameBlob = await new Promise(resolve => {
-                    canvas.toBlob(resolve, 'image/webp', 0.9);
-                });
+                // Get raw image data for lossless processing
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
                 frames.push({
-                    blob: frameBlob,
-                    duration: duration
+                    imageData: imageData,
+                    duration: duration,
+                    width: canvas.width,
+                    height: canvas.height
                 });
             }
 
-            this.showStatus('Creating upscaled WebP...', 'processing');
+            this.showStatus('Creating animated output...', 'processing');
             
-            // For now, we'll just return the first frame as a static WebP
-            // In a full implementation, you'd use a WebP muxer library
-            const outputBlob = frames[0].blob;
-            this.downloadFile(outputBlob, this.getOutputFilename('.webp'));
-            
-            this.showStatus('WebP upscaled successfully! (Note: Only first frame saved)', 'success');
+            // Since browser APIs don't support creating animated WebP,
+            // we'll convert to animated GIF to preserve the animation
+            await this.createAnimatedGIFFromWebP(frames, scale);
             
         } catch (error) {
+            console.error('WebP processing error:', error);
             // Fallback: treat as static WebP
             this.showStatus('Treating as static WebP...', 'processing');
             await this.processStaticWebP(scale, arrayBuffer);
@@ -295,13 +310,13 @@ class AnimationUpscaler {
                 // Draw the image upscaled
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 
-                // Convert to blob and download
+                // Convert to lossless WebP blob and download
                 canvas.toBlob((blob) => {
                     this.downloadFile(blob, this.getOutputFilename('.webp'));
                     this.showStatus('Static WebP upscaled successfully!', 'success');
                     URL.revokeObjectURL(imageUrl);
                     resolve();
-                }, 'image/webp', 0.9);
+                }, 'image/webp', 1.0); // Use quality 1.0 for lossless
             };
             img.onerror = () => {
                 URL.revokeObjectURL(imageUrl);
@@ -309,6 +324,47 @@ class AnimationUpscaler {
             };
             img.src = imageUrl;
         });
+    }
+
+    async createAnimatedGIFFromWebP(frames, scale) {
+        // Convert animated WebP frames to animated GIF since browser APIs
+        // don't support creating animated WebP files
+        
+        if (frames.length === 0) {
+            throw new Error('No frames to process');
+        }
+
+        // Create GIF encoder
+        const encoder = new gifenc.GIFEncoder();
+        encoder.setRepeat(0); // Infinite loop
+        encoder.start();
+
+        // Add each frame to the GIF encoder
+        for (let i = 0; i < frames.length; i++) {
+            const frame = frames[i];
+            
+            // Set delay for this frame (convert from milliseconds to centiseconds)
+            encoder.setDelay(frame.duration / 10);
+            
+            // Add frame data to encoder
+            encoder.addFrame(frame.imageData.data, true);
+        }
+
+        // Finish encoding
+        encoder.finish();
+        const gifBytes = encoder.bytes();
+        
+        // Create blob and download as GIF
+        const blob = new Blob([gifBytes], { type: 'image/gif' });
+        this.downloadFile(blob, this.getOutputFilename('.gif'));
+        
+        // Show detailed status about what was processed
+        const totalDuration = frames.reduce((sum, frame) => sum + frame.duration, 0);
+        this.showStatus(
+            `Animated WebP converted to GIF successfully! ${frames.length} frames processed. ` +
+            `Total duration: ${(totalDuration / 1000).toFixed(2)}s`, 
+            'success'
+        );
     }
 
     getOutputFilename(extension) {
